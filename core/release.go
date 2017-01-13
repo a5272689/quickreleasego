@@ -120,7 +120,7 @@ func (self Release) Call() {
 	self.Args["apppath"]=path.Join(self.Args["appdir"].(string),self.Args["job"].(string))
 	tmppackagepath:=path.Join(self.Args["job"].(string),fmt.Sprintf("%v_%v.tar.gz",self.Args["job"],self.Args["version"]))
 	self.Args["packageurl"]=self.Args["fileserver_url"].(string)+path.Join("/packages",tmppackagepath)
-	self.Args["packagespath"]=path.Join(self.Args["packagesdir"].(string),tmppackagepath)
+	self.Args["packagespath"]=path.Join(self.Args["packagesdir"].(string),"packages",tmppackagepath)
 	self.GetPackageRelease()
 }
 
