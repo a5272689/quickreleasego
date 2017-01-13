@@ -76,7 +76,45 @@ func (self Release) bodyjsontomap(body,hostname string) (map[string]interface{})
 
 
 func (self Release) Reloadrelease(hostname string){
-	fmt.Println(hostname)
+	jid_jsmap:=make(map[string]interface{})
+	if self.Args["port"]==nil||self.Args["port"]==0{
+		jid_jsmap[hostname]=make(map[string]interface{})
+	}else {
+		urlpath := fmt.Sprintf("%v/releasePR", self.Args["saltapi_url"])
+		js:=simplejson.New()
+		js.Set("startuser",self.Args["user"])
+		js.Set("app_path",self.Args["apppath"])
+		js.Set("port",self.Args["port"])
+		js.Set("version",self.Args["version"])
+		js.Set("packages_path",self.Args["packagesdir"])
+		js.Set("timeout",self.Args["timeout"])
+		js.Set("udp",self.Args["udp"])
+		js.Set("monit_bin",self.Args["monitbin"])
+		js2:=simplejson.New()
+		js2.Set("kwargs",js)
+		js2.Set("callback_url","http://127.0.0.1")
+		js2.Set("tgt",hostname)
+		js_byte,_:=js2.MarshalJSON()
+		js_str:=string(js_byte)
+		v := url.Values{}
+		v.Set("data", js_str)
+		fmt.Println(v)
+		resp, err := http.PostForm(urlpath,v)
+		if err != nil {
+			fmt.Println(err)
+		}
+		defer resp.Body.Close()
+		body, err := ioutil.ReadAll(resp.Body)
+		if err != nil {
+			tmpbody:=[]byte("{}")
+			body=tmpbody
+		}
+		js_jid,_:=simplejson.NewFromReader(strings.NewReader(string(body)))
+		jsmap,_:=js_jid.Map()
+		jid_jsmap[hostname]=jsmap
+	}
+
+	self.chan_release_result <- jid_jsmap
 }
 
 func (self Release) Call() {
@@ -112,7 +150,6 @@ func (self Release) GetPackageRelease() {
 					releasecount-=1
 					fmt.Println(fmt.Sprintf("主机(%v)发布失败！！，发布方式(%v)不存在！！",hostname,self.Args["type"]))
 				}
-				fmt.Println(getpackage_result[hostname])
 			}else {
 				fmt.Println(fmt.Sprintf("主机(%v)分发包失败！！，saltAPI返回信息：%v",hostname,getpackage_result[hostname]))
 			}
@@ -123,41 +160,47 @@ func (self Release) GetPackageRelease() {
     	}
 	init_num=0
 	jidcount:=0
-	for releaserelust:=range self.chan_release_result{
-		init_num+=1
+	if releasecount>0{
+		for releaserelust:=range self.chan_release_result{
+			init_num+=1
 
-		for hostname:=range releaserelust{
-			if releaserelust[hostname].(map[string]interface {})["jid"]==nil{
-				fmt.Println(fmt.Sprintf("主机(%v)发布失败！！，发布方式(%v)的接口调用失败！！",hostname,self.Args["type"]))
-			}else {
-				jidcount+=1
-				go self.getjidresult(hostname,releaserelust[hostname].(map[string]interface {})["jid"].(string))
-			}
-		}
-		if init_num==releasecount{
-			close(self.chan_release_result)
-		}
-	}
-	init_num=0
-	for jidrelust:=range self.chan_jid_result{
-		init_num+=1
-		for hostname:=range jidrelust{
-			if fmt.Sprintln(reflect.TypeOf(jidrelust[hostname].(map[string]interface {})["ret"]))=="string\n"{
-				fmt.Println(jidrelust[hostname].(map[string]interface {})["ret"])
-			}else {
-				ret:=jidrelust[hostname].(map[string]interface {})["ret"].(map[string]interface {})
-				if ret["result"].(bool){
-					fmt.Println(ret["info"].(string))
+			for hostname:=range releaserelust{
+				if releaserelust[hostname].(map[string]interface {})["jid"]==nil{
+					fmt.Println(fmt.Sprintf("主机(%v)发布失败！！，发布方式(%v)的接口调用失败！！,调用信息：%v",hostname,self.Args["type"],releaserelust))
 				}else {
-					fmt.Println(ret["info"].(string))
+					jidcount+=1
+					go self.getjidresult(hostname,releaserelust[hostname].(map[string]interface {})["jid"].(string))
 				}
 			}
+			if init_num==releasecount{
+				close(self.chan_release_result)
+			}
 		}
-		if init_num==jidcount{
-			close(self.chan_jid_result)
-		}
-
 	}
+
+	init_num=0
+	if jidcount>0{
+		for jidrelust:=range self.chan_jid_result{
+			init_num+=1
+			for hostname:=range jidrelust{
+				if fmt.Sprintln(reflect.TypeOf(jidrelust[hostname].(map[string]interface {})["ret"]))=="string\n"{
+					fmt.Println(jidrelust[hostname].(map[string]interface {})["ret"])
+				}else {
+					ret:=jidrelust[hostname].(map[string]interface {})["ret"].(map[string]interface {})
+					if ret["result"].(bool){
+						fmt.Println(ret["info"].(string))
+					}else {
+						fmt.Println(ret["info"].(string))
+					}
+				}
+			}
+			if init_num==jidcount{
+				close(self.chan_jid_result)
+			}
+
+		}
+	}
+
 }
 
 func (self Release) getjidresult(hostname,jid string)  {
