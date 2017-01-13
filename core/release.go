@@ -40,7 +40,6 @@ func (self Release) Commonrelease(hostname string) {
 		v.Set("tgt", hostname)
 		v.Set("fun", "releasefj.release_package")
 		v.Set("arg", js_str)
-		fmt.Println(v)
 		resp, err := http.PostForm(urlpath,v)
 		if err != nil {
 			fmt.Println(err)
@@ -98,7 +97,6 @@ func (self Release) Reloadrelease(hostname string){
 		js_str:=string(js_byte)
 		v := url.Values{}
 		v.Set("data", js_str)
-		fmt.Println(v)
 		resp, err := http.PostForm(urlpath,v)
 		if err != nil {
 			fmt.Println(err)
@@ -188,9 +186,9 @@ func (self Release) GetPackageRelease() {
 				}else {
 					ret:=jidrelust[hostname].(map[string]interface {})["ret"].(map[string]interface {})
 					if ret["result"].(bool){
-						fmt.Println(ret["info"].(string))
+						fmt.Println("发布成功！！ 发布信息：",ret["info"].(string))
 					}else {
-						fmt.Println(ret["info"].(string))
+						fmt.Println("发布失败！！ 发布信息：",ret["info"].(string))
 					}
 				}
 			}
