@@ -4,6 +4,8 @@ import (
 	"github.com/docopt/docopt-go"
 	"strconv"
 	"github.com/Unknwon/goconfig"
+	"path/filepath"
+	"os"
 )
 
 func Getargs() (map[string]interface{}) {
@@ -49,6 +51,13 @@ Options:
 		newargs["udp"]=true
 	}else {
 		newargs["udp"]=false
+	}
+	selfpath,_:=filepath.Abs(os.Args[0])
+	basedir,_:=filepath.Split(selfpath)
+	defaultConf:=filepath.Join(basedir,"conf","quickreleasego.ini")
+	_,err:= os.Stat(defaultConf)
+	if err==nil{
+		newargs["conf"]=defaultConf
 	}
 	conf,confEer:=goconfig.LoadConfigFile(newargs["conf"].(string))
 	if confEer==nil{
