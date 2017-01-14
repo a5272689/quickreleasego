@@ -228,7 +228,7 @@ func (self Release) getjidresult(hostname,jid string)  {
 			self.chan_jid_result <- jsmap
 			index=1
 		}else {
-			time.Sleep(5)
+			time.Sleep(time.Second*1)
 
 		}
 	}
