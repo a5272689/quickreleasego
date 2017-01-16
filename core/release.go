@@ -53,7 +53,7 @@ func (self Release) usereleaseAPI(hostname,urlpath string,v url.Values) (map[str
 	jid_jsmap:=make(map[string]interface{})
 	resp, err := http.PostForm(urlpath,v)
 	if err != nil {
-		fmt.Println(err)
+		jid_jsmap[hostname]=fmt.Sprintf("调用接口失败！！,错误信息：（%v）",err)
 	}
 	defer resp.Body.Close()
 	body, err := ioutil.ReadAll(resp.Body)
@@ -196,7 +196,7 @@ func (self Release) getjidresult(hostname,jid string,c chan map[string]interface
 		v.Set("jid", jid)
 		resp, err := http.PostForm(urlpath,v)
 		if err != nil {
-			fmt.Println(err)
+			result[hostname]=fmt.Sprintf("调用接口失败！！,错误信息：（%v）",err)
 		}
 		defer resp.Body.Close()
 		body, err := ioutil.ReadAll(resp.Body)
