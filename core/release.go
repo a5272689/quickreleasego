@@ -14,13 +14,17 @@ import (
 
 type Release struct {
 	Args map[string] interface{}
-	chan_getpackage_result chan map[string]interface{}
-	chan_release_result chan map[string]interface{}
-	chan_jid_result chan map[string]interface{}
 }
 
-func (self Release) Commonrelease(hostname string) {
+func (self Release) Commonrelease(hostname string,c chan map[string]interface{}) {
 	jid_jsmap:=make(map[string]interface{})
+	defer func() {
+		funcErr:=recover()
+		if funcErr!=nil{
+			c <- jid_jsmap
+		}
+		close(c)
+	}()
 	if self.Args["grep"]==nil{
 		jid_jsmap[hostname]=make(map[string]interface{})
 	}else {
@@ -40,42 +44,50 @@ func (self Release) Commonrelease(hostname string) {
 		v.Set("tgt", hostname)
 		v.Set("fun", "releasefj.release_package")
 		v.Set("arg", js_str)
-		resp, err := http.PostForm(urlpath,v)
-		if err != nil {
-			fmt.Println(err)
-		}
-		defer resp.Body.Close()
-		body, err := ioutil.ReadAll(resp.Body)
-		if err != nil {
-			tmpbody:=[]byte("{}")
-			body=tmpbody
-		}
-		js_jid,_:=simplejson.NewFromReader(strings.NewReader(string(body)))
-		jsmap,_:=js_jid.Map()
-		jid_jsmap[hostname]=jsmap
+		jid_jsmap=self.usereleaseAPI(hostname,urlpath,v)
 	}
-
-	self.chan_release_result <- jid_jsmap
+	c <- jid_jsmap
 }
 
-func (self Release) bodyjsontomap(body,hostname string) (map[string]interface{}) {
+func (self Release) usereleaseAPI(hostname,urlpath string,v url.Values) (map[string]interface{}) {
+	jid_jsmap:=make(map[string]interface{})
+	resp, err := http.PostForm(urlpath,v)
+	if err != nil {
+		fmt.Println(err)
+	}
+	defer resp.Body.Close()
+	body, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		tmpbody:=[]byte("{}")
+		body=tmpbody
+	}
+	js_jid,_:=simplejson.NewFromReader(strings.NewReader(string(body)))
+	jsmap,_:=js_jid.Map()
+	jid_jsmap[hostname]=jsmap
+	return jid_jsmap
+}
+
+func (self Release) bodyjsontomap(body,hostname,urlpath string) (map[string]interface{}) {
 	js,_:=simplejson.NewFromReader(strings.NewReader(body))
 	jsmap,_:=js.Map()
-	if jsmap[hostname]==nil{
-		if len(jsmap)>=1{
-			tmp_jsmap:=make(map[string]interface{})
-			tmp_jsmap[hostname]=fmt.Sprintln(jsmap)
-			jsmap=tmp_jsmap
-		}else {
-			jsmap[hostname]=fmt.Sprintf("主机：%v 不存在或已经下线！！",hostname)
-		}
+	if len(jsmap)==0{
+		tmp_jsmap:=make(map[string]interface{})
+		tmp_jsmap[hostname]=fmt.Sprintf("调用接口（%v）失败！！,错误信息：（%v）",urlpath,body)
+		jsmap=tmp_jsmap
 	}
 	return jsmap
 }
 
 
-func (self Release) Reloadrelease(hostname string){
+func (self Release) Reloadrelease(hostname string,c chan map[string]interface{}){
 	jid_jsmap:=make(map[string]interface{})
+	defer func() {
+		funcErr:=recover()
+		if funcErr!=nil{
+			c <- jid_jsmap
+		}
+		close(c)
+	}()
 	if self.Args["port"]==nil||self.Args["port"]==0{
 		jid_jsmap[hostname]=make(map[string]interface{})
 	}else {
@@ -97,22 +109,9 @@ func (self Release) Reloadrelease(hostname string){
 		js_str:=string(js_byte)
 		v := url.Values{}
 		v.Set("data", js_str)
-		resp, err := http.PostForm(urlpath,v)
-		if err != nil {
-			fmt.Println(err)
-		}
-		defer resp.Body.Close()
-		body, err := ioutil.ReadAll(resp.Body)
-		if err != nil {
-			tmpbody:=[]byte("{}")
-			body=tmpbody
-		}
-		js_jid,_:=simplejson.NewFromReader(strings.NewReader(string(body)))
-		jsmap,_:=js_jid.Map()
-		jid_jsmap[hostname]=jsmap
+		jid_jsmap=self.usereleaseAPI(hostname,urlpath,v)
 	}
-
-	self.chan_release_result <- jid_jsmap
+	c <- jid_jsmap
 }
 
 func (self Release) Call() {
@@ -124,84 +123,72 @@ func (self Release) Call() {
 	self.GetPackageRelease()
 }
 
+
 func (self Release) GetPackageRelease() {
-	self.chan_getpackage_result = make(chan map[string]interface{})
-	self.chan_release_result = make(chan map[string]interface{})
-	self.chan_jid_result = make(chan map[string]interface{})
+	var chan_getpackages []chan map[string]interface{}
+	var chan_jids []chan map[string]interface{}
+	var chan_jid_results []chan map[string]interface{}
 	for ind:=range self.Args["hostname"].([]string){
-		go self.getpackage(self.Args["hostname"].([]string)[ind])
+		getpackage_chan:=make(chan map[string]interface{})
+		go self.getpackage(self.Args["hostname"].([]string)[ind],getpackage_chan)
+		chan_getpackages=append(chan_getpackages,getpackage_chan)
 	}
-	num:=len(self.Args["hostname"].([]string))
-	init_num:=0
-	releasecount:=0
-	for getpackage_result := range self.chan_getpackage_result {
-		init_num+=1
-        	for hostname:=range getpackage_result{
-			if getpackage_result[hostname]==self.Args["packagespath"]{
-				fmt.Println(fmt.Sprintf("主机(%v)分发包成功！！，分发包存储路径：%v",hostname,getpackage_result[hostname]))
-				releasecount+=1
-				if self.Args["type"]=="common"{
-					go self.Commonrelease(hostname)
-				}else if self.Args["type"]=="reload"{
-					go self.Reloadrelease(hostname)
-				}else {
-					releasecount-=1
-					fmt.Println(fmt.Sprintf("主机(%v)发布失败！！，发布方式(%v)不存在！！",hostname,self.Args["type"]))
-				}
+	for _,tmp_chan:=range chan_getpackages{
+		for hostname,result:=range <- tmp_chan{
+			if result.(string)!=self.Args["packagespath"]{
+				fmt.Println("主机： ",hostname," 获取包失败：",result)
 			}else {
-				fmt.Println(fmt.Sprintf("主机(%v)分发包失败！！，saltAPI返回信息：%v",hostname,getpackage_result[hostname]))
-			}
-		}
-		if init_num==num{
-			close(self.chan_getpackage_result)
-		}
-    	}
-	init_num=0
-	jidcount:=0
-	if releasecount>0{
-		for releaserelust:=range self.chan_release_result{
-			init_num+=1
-
-			for hostname:=range releaserelust{
-				if releaserelust[hostname].(map[string]interface {})["jid"]==nil{
-					fmt.Println(fmt.Sprintf("主机(%v)发布失败！！，发布方式(%v)的接口调用失败！！,调用信息：%v",hostname,self.Args["type"],releaserelust))
+				fmt.Println("主机： ",hostname," 获取包成功，包存放路径：",result)
+				release_jid_chan:=make(chan map[string]interface{})
+				chan_jids=append(chan_jids,release_jid_chan)
+				if self.Args["type"]=="common"{
+					go self.Commonrelease(hostname,release_jid_chan)
+				}else if self.Args["type"]=="reload"{
+					go self.Reloadrelease(hostname,release_jid_chan)
 				}else {
-					jidcount+=1
-					go self.getjidresult(hostname,releaserelust[hostname].(map[string]interface {})["jid"].(string))
+					fmt.Println(fmt.Sprintf("主机(%v)发布失败！！，发布方式(%v)不存在！！",hostname,self.Args["type"]))
+					close(release_jid_chan)
 				}
-			}
-			if init_num==releasecount{
-				close(self.chan_release_result)
 			}
 		}
 	}
-
-	init_num=0
-	if jidcount>0{
-		for jidrelust:=range self.chan_jid_result{
-			init_num+=1
-			for hostname:=range jidrelust{
-				if fmt.Sprintln(reflect.TypeOf(jidrelust[hostname].(map[string]interface {})["ret"]))=="string\n"{
-					fmt.Println(jidrelust[hostname].(map[string]interface {})["ret"])
+	for _,tmp_chan:=range chan_jids{
+		for hostname,jid:=range <- tmp_chan{
+				if jid.(map[string]interface {})["jid"]==nil{
+					fmt.Println(fmt.Sprintf("主机(%v)发布失败！！，发布方式(%v)的接口调用失败！！,调用结果：%v",hostname,self.Args["type"],jid))
 				}else {
-					ret:=jidrelust[hostname].(map[string]interface {})["ret"].(map[string]interface {})
-					if ret["result"].(bool){
-						fmt.Println("发布成功！！ 发布信息：",ret["info"].(string))
-					}else {
-						fmt.Println("发布失败！！ 发布信息：",ret["info"].(string))
-					}
+					release_result_chan:=make(chan map[string]interface{})
+					go self.getjidresult(hostname,jid.(map[string]interface {})["jid"].(string),release_result_chan)
+					chan_jid_results=append(chan_jid_results,release_result_chan)
+				}
+		}
+	}
+	for _,tmp_chan:=range chan_jid_results{
+		for hostname,result:=range <-tmp_chan{
+			if fmt.Sprint(reflect.TypeOf(result.(map[string]interface {})["ret"]))=="string"{
+				fmt.Println("主机：",hostname," 发布失败！！错误信息：",result.(map[string]interface {})["ret"])
+			}else {
+				ret:=result.(map[string]interface {})["ret"].(map[string]interface {})
+				if ret["result"].(bool){
+					fmt.Println("主机：",hostname,"发布成功！！ 发布信息：",ret["info"].(string))
+				}else {
+					fmt.Println("主机：",hostname,"发布失败！！ 发布信息：",ret["info"].(string))
 				}
 			}
-			if init_num==jidcount{
-				close(self.chan_jid_result)
-			}
-
 		}
 	}
 
 }
 
-func (self Release) getjidresult(hostname,jid string)  {
+func (self Release) getjidresult(hostname,jid string,c chan map[string]interface{})  {
+	result:=make(map[string]interface{})
+	defer func() {
+		funcErr:=recover()
+		if funcErr!=nil{
+			c <- result
+		}
+		close(c)
+	}()
 	index:=0
 	for index==0{
 		urlpath := fmt.Sprintf("%v/saltAPI/async", self.Args["saltapi_url"])
@@ -225,7 +212,8 @@ func (self Release) getjidresult(hostname,jid string)  {
 			}else if fmt.Sprintln(reflect.TypeOf(jsmap[hostname]))!="map[string]interface {}\n"{
 				jsmap[hostname]=map[string]interface {} {"ret":jsmap[hostname].(string)}
 			}
-			self.chan_jid_result <- jsmap
+			result=jsmap
+			c <- result
 			index=1
 		}else {
 			time.Sleep(time.Second*1)
@@ -234,7 +222,15 @@ func (self Release) getjidresult(hostname,jid string)  {
 	}
 }
 
-func (self Release) getpackage(hostname string)  {
+func (self Release) getpackage(hostname string,c chan map[string]interface{})  {
+	result:=make(map[string]interface{})
+	defer func() {
+		funcErr:=recover()
+		if funcErr!=nil{
+			c <- result
+		}
+		close(c)
+	}()
 	urlpath := fmt.Sprintf("%v/saltAPI", self.Args["saltapi_url"])
 	v := url.Values{}
 	v.Set("tgt", hostname)
@@ -242,15 +238,13 @@ func (self Release) getpackage(hostname string)  {
 	v.Set("arg", self.Args["packageurl"].(string))
 	v.Add("arg", self.Args["packagespath"].(string))
 	resp, err := http.PostForm(urlpath, v)
-	if err != nil {
-		fmt.Println(err)
+
+	if err == nil {
+		body,_ := ioutil.ReadAll(resp.Body)
+		result=self.bodyjsontomap(string(body),hostname,urlpath)
+	}else {
+		result[hostname]=fmt.Sprintf("调用接口失败！！,错误信息：（%v）",err)
 	}
 	defer resp.Body.Close()
-	body, err := ioutil.ReadAll(resp.Body)
-	if err != nil {
-		tmpbody:=[]byte("{}")
-		body=tmpbody
-	}
-	jsmap:=self.bodyjsontomap(string(body),hostname)
-	self.chan_getpackage_result <- jsmap
+	c<- result
 }
