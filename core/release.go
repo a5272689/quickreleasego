@@ -168,6 +168,7 @@ func (self Release) GetPackageRelease() {
 			if fmt.Sprint(reflect.TypeOf(result.(map[string]interface {})["ret"]))=="string"{
 				fmt.Println("主机：",hostname," 发布失败！！错误信息：",result.(map[string]interface {})["ret"])
 			}else {
+				fmt.Println("发布返回结果：",result)
 				ret:=result.(map[string]interface {})["ret"].(map[string]interface {})
 				if ret["result"].(bool){
 					fmt.Println("主机：",hostname,"发布成功！！ 发布信息：",ret["info"].(string))
